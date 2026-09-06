@@ -465,11 +465,15 @@ def _anonymize_name(person_id: str) -> str:
     name = person_id.split("_")[0].strip()
     if not name:
         return "匿名学长"
-    # 已脱敏的称谓直接返回
+    # 已脱敏的称谓直接返回（短称谓如"张学长""王师兄"）
     honorifics = ["学长", "学姐", "师兄", "师姐", "同学"]
     for h in honorifics:
         if name.endswith(h) and len(name) <= 4:
             return name
+    # 冷启动脱敏代号格式：如"2020级数科023号学长""2021级智科012号学姐"
+    # 以年份开头、含"级"、以学长/学姐结尾 → 已脱敏，直接返回
+    if name.endswith(("学长", "学姐")) and re.match(r"^\d{4}级", name) and "号" in name:
+        return name
     # 纯英文/拼音名：取首字母大写 + 同学
     if all(c.isascii() and (c.isalpha() or c == '.') for c in name):
         if len(name) <= 2:
@@ -635,19 +639,25 @@ def _extract_profile(content_text: str, chunk_type: str, topic: str = "",
     profile = {}
     c = content or {}
 
-    # 绩点
-    m = re.search(r"绩点[：:]\s*(\d+\.?\d*)", text)
-    if m:
-        profile["gpa"] = m.group(1)
-    elif isinstance(c.get("gpa"), (int, float)):
-        profile["gpa"] = str(c["gpa"])
+    # 绩点（优先读脱敏档次 gpa_band，回退正则/精确值）
+    if c.get("gpa_band"):
+        profile["gpa"] = str(c["gpa_band"])
+    else:
+        m = re.search(r"绩点[：:]\s*(\d+\.?\d*)", text)
+        if m:
+            profile["gpa"] = m.group(1)
+        elif isinstance(c.get("gpa"), (int, float)):
+            profile["gpa"] = str(c["gpa"])
 
-    # 专业排名
-    m = re.search(r"专业排名[：:]\s*(\d+/\d+)", text)
-    if m:
-        profile["rank"] = m.group(1)
-    elif c.get("gpa_rank"):
-        profile["rank"] = str(c["gpa_rank"])
+    # 专业排名（优先读脱敏档次 rank_band，回退正则/精确值）
+    if c.get("rank_band"):
+        profile["rank"] = str(c["rank_band"])
+    else:
+        m = re.search(r"专业排名[：:]\s*(\d+/\d+)", text)
+        if m:
+            profile["rank"] = m.group(1)
+        elif c.get("gpa_rank"):
+            profile["rank"] = str(c["gpa_rank"])
 
     # 录取院校（保研去向）
     m = re.search(r"录取院校[：:]\s*([^\s；;,，。、]+)", text)
@@ -702,16 +712,20 @@ def _extract_profile(content_text: str, chunk_type: str, topic: str = "",
                 profile["job_category"] = cat
                 break
 
-        # 薪资范围
-        m = re.search(r"应届(\d+)K[×x\*](\d+)薪", text)
-        if m:
-            base = int(m.group(1))
-            mult = int(m.group(2))
-            profile["salary"] = f"{base}K×{mult}薪"
-            profile["salary_range"] = f"{base}K×{mult}薪（年包{base*mult}W）"
-        elif c.get("target_position"):
-            # 从普查数据无法提取精确薪资，标注行业范围
-            profile["salary_range"] = ""
+        # 薪资范围（优先读脱敏区间档位，回退精确值）
+        m_band = re.search(r"应届(\d+k-\d+k|8k以下|\d+k以上)档", text)
+        if m_band:
+            profile["salary_range"] = m_band.group(1)
+        else:
+            m = re.search(r"应届(\d+)K[×x\*](\d+)薪", text)
+            if m:
+                base = int(m.group(1))
+                mult = int(m.group(2))
+                profile["salary"] = f"{base}K×{mult}薪"
+                profile["salary_range"] = f"{base}K×{mult}薪（年包{base*mult}W）"
+            elif c.get("target_position"):
+                # 从普查数据无法提取精确薪资，标注行业范围
+                profile["salary_range"] = ""
 
     # 去向类型
     future_path = str(c.get("future_path", ""))
@@ -1051,6 +1065,7 @@ def _build_evidence_cards(evidence_list: list, answer_text: str = "",
 
         card = {
             "anonymized_name": _anonymize_name(person_id),
+            "card_index": len(cards) + 1,
             "type_label": type_label,
             "type": chunk_type,
             "major": content.get("major", ""),
@@ -1071,6 +1086,120 @@ def _build_evidence_cards(evidence_list: list, answer_text: str = "",
         }
         cards.append(card)
     return cards
+
+
+def _build_reference_summary(cards: list, user_profile: dict | None = None) -> str:
+    """构造脱敏参考案例摘要：'参考了N位GPA 3.8+、有美赛经历保研学长的成长路径'
+
+    聚合规则：
+    - 人数：去重后的学长数
+    - 去向方向：从 profile.future_path 聚合（保研/考研/就业/出国），取多数
+    - GPA特征：取所有卡片GPA的最高档（如"3.8+"优于"3.7-3.8"）
+    - 竞赛特征：从 tags 检查是否有美赛/数模/蓝桥杯等核心竞赛
+    - 固定结尾：'学长的成长路径'，明确系统定位为学长经验参考工具
+    """
+    if not cards:
+        return ""
+
+    n = len(cards)
+
+    # 去向方向聚合（取出现最多的）
+    # 老师要求：保研问→保研学长，留学问→留学学长，考研问→考研学长，就业问→就业学长
+    path_map = {
+        "保研": ["保研", "graduate"],
+        "考研": ["考研"],
+        "留学": ["出国", "study_abroad", "留学", "NUS", "爱丁堡"],
+        "就业": ["就业", "fulltime", "算法", "工程", "产品"],
+    }
+    path_counts = {"保研": 0, "考研": 0, "留学": 0, "就业": 0}
+    for c in cards:
+        fp = str((c.get("profile") or {}).get("future_path", ""))
+        target = str(c.get("target", ""))
+        tags = c.get("tags") or []
+        tag_str = ",".join(str(t) for t in tags) if isinstance(tags, list) else str(tags)
+        combined = fp + " " + target + " " + tag_str
+        for path, kws in path_map.items():
+            if any(kw in combined for kw in kws):
+                path_counts[path] += 1
+                break
+    main_path = max(path_counts, key=lambda k: path_counts[k]) if any(path_counts.values()) else "发展"
+
+    # GPA特征：取最高档
+    gpa_order = ["3.9+", "3.8-3.9", "3.8+", "3.7-3.8", "3.5-3.7", "3.3-3.5", "3.0-3.3"]
+    gpa_set = set()
+    for c in cards:
+        g = str((c.get("profile") or {}).get("gpa", ""))
+        if g:
+            gpa_set.add(g)
+    best_gpa = ""
+    for g in gpa_order:
+        if g in gpa_set:
+            best_gpa = g
+            break
+    if not best_gpa and gpa_set:
+        best_gpa = list(gpa_set)[0]
+
+    # 竞赛特征：检查 tags 里有无核心竞赛
+    competition_kw_map = {
+        "美赛": ["美赛", "M奖", "O奖", "H奖", "F奖"],
+        "数模": ["数模", "数学建模", "国一", "国二", "省一"],
+        "蓝桥杯": ["蓝桥杯"],
+        "Kaggle": ["Kaggle", "kaggle"],
+        "互联网+": ["互联网+"],
+    }
+    found_competitions = []
+    for comp, kws in competition_kw_map.items():
+        for c in cards:
+            tags = c.get("tags") or []
+            tag_str = ",".join(str(t) for t in tags) if isinstance(tags, list) else str(tags)
+            if any(kw in tag_str for kw in kws):
+                found_competitions.append(comp)
+                break
+    # 去重保序
+    seen = set()
+    comp_list = []
+    for c in found_competitions:
+        if c not in seen:
+            seen.add(c)
+            comp_list.append(c)
+
+    # 其他特点维度：科研产出、实习经历、英语能力
+    has_research = False
+    has_internship = False
+    has_english = False
+    for c in cards:
+        tags = c.get("tags") or []
+        tag_str = ",".join(str(t) for t in tags) if isinstance(tags, list) else str(tags)
+        profile = c.get("profile") or {}
+        # 科研：tags 里有"科研"或 profile 里有 grad_school（保研去向说明有科研）
+        if "科研" in tag_str or profile.get("grad_school"):
+            has_research = True
+        # 实习：tags 里有"实习"或 profile 里有 company（就业说明有实习）
+        if "实习" in tag_str or profile.get("company"):
+            has_internship = True
+        # 英语：profile 里有 english 且包含雅思/托福/GRE/CET
+        eng = str(profile.get("english", ""))
+        if eng and any(kw in eng for kw in ["雅思", "托福", "GRE", "IELTS", "TOEFL"]):
+            has_english = True
+
+    # 拼装：参考了2位GPA 3.9+、有美赛经历的保研学长的成长路径
+    # 结构：参考了 + N位 + [特点1]、[特点2]... + 的 + 去向 + 学长的成长路径
+    head = f"参考了{n}位"
+    middle = []
+    if best_gpa:
+        middle.append(f"GPA {best_gpa}")
+    if comp_list:
+        middle.append(f"有{'、'.join(comp_list)}经历")
+    if has_research:
+        middle.append("有科研产出")
+    if has_internship:
+        middle.append("有实习经历")
+    if has_english:
+        middle.append("语言成绩突出")
+    tail = f"{main_path}学长的成长路径"
+    if middle:
+        return f"{head}{'、'.join(middle)}的{tail}"
+    return f"{head}{tail}"
 
 
 @csrf_exempt
@@ -1355,6 +1484,7 @@ def ask(request):
             'caveats': answer.get('caveats', []),
             'evidence': raw_evidence[:3],
             'evidence_cards': evidence_cards,
+            'reference_summary': _build_reference_summary(evidence_cards, user_profile),
             'answer_match': answer_match,
             'source_counts': src_counts,
             'confidence': confidence,
@@ -1366,6 +1496,7 @@ def ask(request):
             'full_text': answer.get('analysis', ''),
             'evidence': raw_evidence[:3],
             'evidence_cards': evidence_cards,
+            'reference_summary': _build_reference_summary(evidence_cards, user_profile),
             'answer_match': answer_match,
             'source_counts': src_counts,
             'confidence': confidence,
@@ -3721,17 +3852,21 @@ def data_overview(request):
                     'pct': round(count / total_sal * 100, 1) if total_sal else 0
                 })
 
-        # 热门公司
+        # 热门公司（仅统计全职就业，升学/出国的院校不计入公司榜）
         company_counts = {}
         for emp in employments:
+            if emp.employment_type != 'fulltime':
+                continue
             name = (emp.company_name or '').strip()
             if name:
                 company_counts[name] = company_counts.get(name, 0) + 1
         top_companies = sorted(company_counts.items(), key=lambda x: -x[1])[:8]
 
-        # 热门行业
+        # 热门行业（仅统计全职就业，升学/出国的"科研"行业不计入）
         industry_counts = {}
         for emp in employments:
+            if emp.employment_type != 'fulltime':
+                continue
             ind = (emp.industry or '').strip()
             if ind:
                 industry_counts[ind] = industry_counts.get(ind, 0) + 1

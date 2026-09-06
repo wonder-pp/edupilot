@@ -77,13 +77,22 @@ class QueryGenerator:
                 f"{what} advice method reflection",
                 f"{goal} 发力点 绩点 科研 竞赛 材料 复试".strip(),
             ]
+        elif goal in ["出国", "留学", "出境"]:
+            # 留学查询 — 用留学相关词，避免保研关键词污染召回
+            fused_queries = [
+                f"{stage} 留学 出国 {what}".strip(),
+                f"留学 雅思 托福 GRE 申请 文书 背景提升",
+                f"留学 申请 时间线 决策 advice method reflection",
+                f"出国 留学 院校 选择 语言考试 签证",
+                f"留学 经验 案例 海外硕士 申请准备",
+            ]
         else:
             # 通用查询
             fused_queries = [
                 f"{stage} {goal} {what}".strip(),
                 f"{what} decision reason tradeoff",
                 f"{what} advice method reflection",
-                f"{goal} 发力点 绩点 科研 竞赛 材料 复试".strip(),
+                f"{goal} 发力点 经验 规划 选择 准备".strip(),
             ]
         
         fused_queries.extend(

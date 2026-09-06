@@ -1,4 +1,4 @@
-﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿<!DOCTYPE html>
+﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿<!DOCTYPE html>
 <html lang="zh-CN" class="trae-edit-mode-dragging"><head></head><body class="role-student">﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿
 ﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿
 
@@ -1658,6 +1658,83 @@
         }
         .ev-match-text {
             display: none;
+        }
+
+        /* ==================== 脱敏参考案例摘要卡片（老师第6条要求，颜色随主题变化） ==================== */
+        .ref-summary-card {
+            display: flex;
+            align-items: flex-start;
+            gap: 10px;
+            padding: 12px 14px;
+            margin-bottom: 14px;
+            background: color-mix(in srgb, var(--primary) 12%, var(--card-bg));
+            border: 1px solid color-mix(in srgb, var(--primary) 45%, transparent);
+            border-radius: 4px;
+        }
+        .ref-summary-icon {
+            font-size: 18px;
+            line-height: 1.4;
+            flex-shrink: 0;
+        }
+        .ref-summary-body {
+            flex: 1;
+            min-width: 0;
+        }
+        .ref-summary-title {
+            font-size: 11px;
+            font-weight: 600;
+            color: var(--primary);
+            letter-spacing: 0.5px;
+            margin-bottom: 4px;
+            text-transform: uppercase;
+            filter: brightness(0.65) saturate(1.2);
+        }
+        .ref-summary-text {
+            font-size: 13px;
+            color: #1a1a2e;
+            line-height: 1.5;
+            font-weight: 500;
+        }
+        .ref-summary-note {
+            font-size: 11px;
+            color: #8892a0;
+            margin-top: 6px;
+            padding-top: 6px;
+            border-top: 1px dashed var(--border);
+        }
+
+        /* ==================== 全局底部免责声明条（老师要求） ==================== */
+        .global-disclaimer {
+            position: fixed;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            z-index: 9999;
+            height: 30px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 0 16px;
+            background: color-mix(in srgb, var(--primary) 8%, var(--page-bg));
+            border-top: 1px solid var(--border);
+            font-size: 11px;
+            color: var(--text-secondary, #64748B);
+            text-align: center;
+            line-height: 1.4;
+            pointer-events: none;
+        }
+        .global-disclaimer strong {
+            color: var(--primary);
+            filter: brightness(0.7) saturate(1.2);
+            font-weight: 600;
+            margin-right: 4px;
+        }
+        /* 登录页与聊天容器预留底部空间，避免被免责条遮挡 */
+        .login-container {
+            padding-bottom: 42px;
+        }
+        .chat-wrapper {
+            padding-bottom: 30px;
         }
 
         .message-time {
@@ -4537,7 +4614,7 @@
             const loadingDiv = document.createElement('div');
             loadingDiv.className = 'message agent';
             loadingDiv.id = 'ai-loading';
-            loadingDiv.innerHTML = '<div class="message-content"><span style="display:inline-block;width:16px;height:16px;border:2px solid var(--primary);border-top-color:transparent;border-radius:50%;animation:spin 0.8s linear infinite;"></span> AI正在思考中...</div>';
+            loadingDiv.innerHTML = '<div class="message-content"><span style="display:inline-block;width:16px;height:16px;border:2px solid var(--primary);border-top-color:transparent;border-radius:50%;animation:spin 0.8s linear infinite;"></span> EduPilot正在思考中...</div>';
             messagesContainer.appendChild(loadingDiv);
             messagesContainer.scrollTop = messagesContainer.scrollHeight;
 
@@ -4640,7 +4717,7 @@
             // 找到当前 message-row 并替换为 loading
             var row = event.target.closest('.message-row');
             if (row) {
-                row.innerHTML = '<div class="message-col"><div class="message agent"><div class="message-content"><span style="display:inline-block;width:16px;height:16px;border:2px solid var(--primary);border-top-color:transparent;border-radius:50%;animation:spin 0.8s linear infinite;"></span> AI正在重新生成...</div></div></div>';
+                row.innerHTML = '<div class="message-col"><div class="message agent"><div class="message-content"><span style="display:inline-block;width:16px;height:16px;border:2px solid var(--primary);border-top-color:transparent;border-radius:50%;animation:spin 0.8s linear infinite;"></span> EduPilot正在重新生成...</div></div></div>';
             }
 
             try {
@@ -4723,7 +4800,7 @@
             const loadingDiv = document.createElement('div');
             loadingDiv.className = 'message agent';
             loadingDiv.id = 'quick-ai-loading';
-            loadingDiv.innerHTML = '<div class="message-content"><span style="display:inline-block;width:16px;height:16px;border:2px solid var(--primary);border-top-color:transparent;border-radius:50%;animation:spin 0.8s linear infinite;"></span> AI正在思考中...</div>';
+            loadingDiv.innerHTML = '<div class="message-content"><span style="display:inline-block;width:16px;height:16px;border:2px solid var(--primary);border-top-color:transparent;border-radius:50%;animation:spin 0.8s linear infinite;"></span> EduPilot正在思考中...</div>';
             messagesContainer.appendChild(loadingDiv);
 
             try {
@@ -5074,10 +5151,19 @@
             }
 
             let html = '';
+            // 脱敏参考案例摘要卡片（顶部，老师第6条要求）
+            if (data.reference_summary) {
+                html += '<div class="ref-summary-card">';
+                html += '<div class="ref-summary-body">';
+                html += '<div class="ref-summary-title">脱敏参考案例</div>';
+                html += '<div class="ref-summary-text">' + escapeHtml(data.reference_summary) + '</div>';
+                html += '<div class="ref-summary-note">本工具为学长经验参考，非官方决策系统</div>';
+                html += '</div>';
+                html += '</div>';
+            }
             if (data.source_counts) {
                 html += '<div class="evidence-src-tags" style="margin-bottom:12px;">';
                 var sc = data.source_counts;
-                if (sc.deep > 0) html += '<span class="evidence-src-tag deep">深度访谈 ' + sc.deep + '</span>';
                 if (sc.public > 0) html += '<span class="evidence-src-tag public">公众号 ' + sc.public + '</span>';
                 if (sc.census > 0) html += '<span class="evidence-src-tag census">普查 ' + sc.census + '</span>';
                 if (sc.employment > 0) html += '<span class="evidence-src-tag employment">就业 ' + sc.employment + '</span>';
@@ -5293,12 +5379,19 @@
             cards.forEach(card => {
                 const matchPercent = card.match_percent || 0;
                 const p = card.profile || {};
+                // 卡片名字：学长1/学姐2（按原代号判断性别+序号）
+                var honorific = '学长';
+                var origName = String(card.anonymized_name || '');
+                if (origName.indexOf('学姐') >= 0 || origName.indexOf('师姐') >= 0) {
+                    honorific = '学姐';
+                }
+                var cardName = honorific + (card.card_index || 1);
 
                 html += '<div class="ev-card">';
                 // 姓名 + 匹配度
                 html += '<div class="ev-card-top">';
                 html += '<div>';
-                html += '<div class="ev-card-name">' + escapeHtml(card.anonymized_name) + '</div>';
+                html += '<div class="ev-card-name">' + escapeHtml(cardName) + '</div>';
                 html += '<div class="ev-card-type">' + escapeHtml(card.type_label) + '</div>';
                 html += '</div>';
                 html += '<span class="ev-card-badge">匹配 ' + matchPercent + '%</span>';
@@ -8107,5 +8200,10 @@
             }
         }
     </script>
+
+    <!-- 全局底部免责声明条（老师要求：登录页+问答界面固定展示） -->
+    <div class="global-disclaimer">
+        <strong>免责声明：</strong>本系统建议基于往届去标识化样本生成，仅供参考，不代表学院官方保研/就业硬性结论
+    </div>
 
 </body></html>

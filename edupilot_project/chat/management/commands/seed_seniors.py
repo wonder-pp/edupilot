@@ -1,66 +1,55 @@
 # -*- coding: utf-8 -*-
-"""扩充学长就业样本数据（脱敏化名 + 真实分布），用于数据概览面板可视化"""
-from django.core.management.base import BaseCommand
+"""冷启动学长就业样本数据：17人脱敏案例，与FAISS冷启动数据保持一致。
+
+数据来源：edupilot_agent/data/cold_start_20.json
+脱敏规则：姓名=脱敏代号，薪资=区间档位，与DATA_SPEC.md一致
+
+运行方式：
+  python manage.py seed_seniors            # 增量写入（跳过已存在）
+  python manage.py seed_seniors --flush    # 清空旧数据后重新写入（冷启动切换用）
+"""
+from django.core.management.base import BaseCommand, BaseCommand
 from chat.models import SeniorMentor, SeniorEmployment
 
-# 两个专业
 MAJOR_DS = '数据科学与大数据技术'
 MAJOR_AI = '智能科学与技术'
 
-# 数据列表：每条 = (name, major, year, type, company, industry, position, salary, location)
-# 就业类型 fulltime=全职 / graduate=升学 / study_abroad=留学 / startup=创业 / other=其他
-SENIORS = [
-    # ========== 数据科学与大数据技术 22 条 ==========
-    # 全职就业 14
-    ('陈思远', MAJOR_DS, '2022', 'fulltime', '字节跳动', '互联网', '数据工程师', '22K', '北京'),
-    ('林宇航', MAJOR_DS, '2021', 'fulltime', '阿里巴巴', '互联网', '算法工程师', '25K', '杭州'),
-    ('王梓涵', MAJOR_DS, '2023', 'fulltime', '美团', '互联网', '后端开发工程师', '18K', '北京'),
-    ('张博文', MAJOR_DS, '2020', 'fulltime', '腾讯', '互联网', '大数据开发工程师', '24K', '深圳'),
-    ('刘晨曦', MAJOR_DS, '2022', 'fulltime', '华为', '通信', '数据分析师', '20K', '深圳'),
-    ('李泽楷', MAJOR_DS, '2023', 'fulltime', '百度', '互联网', '推荐算法工程师', '19K', '北京'),
-    ('赵睿', MAJOR_DS, '2021', 'fulltime', '京东', '互联网', '数据工程师', '21K', '北京'),
-    ('孙浩然', MAJOR_DS, '2020', 'fulltime', '拼多多', '互联网', '算法工程师', '26K', '上海'),
-    ('周明轩', MAJOR_DS, '2022', 'fulltime', '网易', '互联网', '数据开发工程师', '18K', '杭州'),
-    ('吴俊杰', MAJOR_DS, '2023', 'fulltime', '快手', '互联网', '大数据工程师', '20K', '北京'),
-    ('郑凯', MAJOR_DS, '2021', 'fulltime', '招商银行', '金融科技', '数据分析师', '16K', '深圳'),
-    ('钱伟', MAJOR_DS, '2022', 'fulltime', '中信证券', '金融科技', '量化研究员', '22K', '北京'),
-    ('冯天宇', MAJOR_DS, '2020', 'fulltime', '商汤科技', '人工智能', 'CV算法工程师', '23K', '上海'),
-    ('梁文静', MAJOR_DS, '2022', 'fulltime', '滴滴', '互联网', '数据分析师', '17K', '北京'),
-    # 升学深造 5
-    ('杨子轩', MAJOR_DS, '2022', 'graduate', '复旦大学', '科研', '计算机技术（保研）', '', '上海'),
-    ('罗婧', MAJOR_DS, '2021', 'graduate', '天津大学', '科研', '人工智能（保研）', '', '天津'),
-    ('彭浩', MAJOR_DS, '2021', 'graduate', '中国科学技术大学', '科研', '数据科学（考研）', '', '合肥'),
-    ('许文博', MAJOR_DS, '2023', 'graduate', '浙江大学', '科研', '大数据（保研）', '', '杭州'),
-    ('蔡明', MAJOR_DS, '2021', 'graduate', '南京大学', '科研', '机器学习（保研）', '', '南京'),
-    # 出国留学 2
-    ('苏婉清', MAJOR_DS, '2022', 'study_abroad', '卡内基梅隆大学', '科研', '计算机硕士', '', '美国'),
-    ('范晓琳', MAJOR_DS, '2023', 'study_abroad', '苏黎世联邦理工', '科研', 'AI硕士', '', '瑞士'),
-    # 创业 1
-    ('高俊豪', MAJOR_DS, '2020', 'startup', '自主创业', '创业', '创始人', '', '上海'),
+# 级别→毕业年份映射（本科4年制）
+STAGE_TO_YEAR = {
+    '2019级': '2023',
+    '2020级': '2024',
+    '2021级': '2025',
+    '2022级': '2026',
+}
 
-    # ========== 智能科学与技术 18 条 ==========
-    # 全职就业 10
-    ('陈雨桐', MAJOR_AI, '2021', 'fulltime', '商汤科技', '人工智能', 'CV算法工程师', '24K', '上海'),
-    ('林泽', MAJOR_AI, '2022', 'fulltime', '旷视科技', '人工智能', '算法工程师', '22K', '北京'),
-    ('王昊', MAJOR_AI, '2023', 'fulltime', '科大讯飞', '人工智能', 'NLP工程师', '18K', '合肥'),
-    ('张晨', MAJOR_AI, '2020', 'fulltime', '阿里巴巴', '互联网', '算法专家', '28K', '杭州'),
-    ('刘洋', MAJOR_AI, '2022', 'fulltime', '腾讯', '人工智能', 'AI研究员', '26K', '深圳'),
-    ('赵敏', MAJOR_AI, '2021', 'fulltime', '字节跳动', '互联网', '推荐算法工程师', '23K', '北京'),
-    ('钱浩', MAJOR_AI, '2023', 'fulltime', '百度', '人工智能', '自动驾驶算法工程师', '20K', '北京'),
-    ('李博', MAJOR_AI, '2020', 'fulltime', '滴滴', '互联网', '数据科学家', '25K', '北京'),
-    ('周磊', MAJOR_AI, '2023', 'fulltime', '招商银行', '金融科技', 'AI风控工程师', '17K', '深圳'),
-    ('吴佳', MAJOR_AI, '2021', 'fulltime', '中信证券', '金融科技', '量化工程师', '21K', '北京'),
-    # 升学深造 5
-    ('王磊', MAJOR_AI, '2023', 'graduate', '复旦大学', '科研', '智能科学（保研）', '', '上海'),
-    ('高晨', MAJOR_AI, '2021', 'graduate', '上海交通大学', '科研', '模式识别（保研）', '', '上海'),
-    ('林帆', MAJOR_AI, '2022', 'graduate', '浙江大学', '科研', '计算机视觉（保研）', '', '杭州'),
-    ('沈佳琪', MAJOR_AI, '2023', 'graduate', '中山大学', '科研', '智能科学（保研）', '', '广州'),
-    ('韩雪', MAJOR_AI, '2022', 'graduate', '华中科技大学', '科研', '人工智能（保研）', '', '武汉'),
-    # 出国留学 2
-    ('顾文豪', MAJOR_AI, '2021', 'study_abroad', '新加坡国立大学', '科研', '数据科学硕士', '', '新加坡'),
-    ('徐颖', MAJOR_AI, '2022', 'study_abroad', '斯坦福大学', '科研', 'AI硕士', '', '美国'),
-    # 创业 1
-    ('郑雪', MAJOR_AI, '2022', 'startup', '自主创业', '创业', 'AI产品创始人', '', '上海'),
+# 冷启动17人数据
+# (脱敏代号, 专业, 级别, 就业类型, 单位, 行业, 岗位, 薪资区间, 工作地)
+# 就业类型：fulltime=全职 / graduate=升学(保研+考研) / study_abroad=出国
+SENIORS = [
+    # ========== 保研赛道 5人 ==========
+    ('2020级数科001号学长', MAJOR_DS, '2020级', 'graduate', '本校', '科研', '保研（本校）', '', '北京'),
+    ('2020级数科023号学长', MAJOR_DS, '2020级', 'graduate', '清华大学', '科研', '保研（清华）', '', '北京'),
+    ('2021级数科038号学长', MAJOR_DS, '2021级', 'graduate', '浙江大学', '科研', '保研（浙大）', '', '杭州'),
+    ('2021级智科021号学长', MAJOR_AI, '2021级', 'graduate', '复旦大学', '科研', '保研（复旦跨方向）', '', '上海'),
+    ('2019级智科003号学长', MAJOR_AI, '2019级', 'graduate', '中科院信工所', '科研', '保研（科研院所）', '', '北京'),
+
+    # ========== 考研赛道 3人 ==========
+    ('2022级数科002号学长', MAJOR_DS, '2022级', 'graduate', '北京邮电大学', '科研', '考研（学硕）', '', '北京'),
+    ('2022级数科010号学长', MAJOR_DS, '2022级', 'graduate', '北京理工大学', '科研', '考研（专硕）', '', '北京'),
+    ('2022级智科015号学长', MAJOR_AI, '2022级', 'graduate', '中央财经大学', '科研', '跨考（金融科技）', '', '北京'),
+
+    # ========== 出国赛道 2人 ==========
+    ('2022级数科001号学长', MAJOR_DS, '2022级', 'study_abroad', '新加坡国立大学', '科研', '名校申请（NUS）', '', '新加坡'),
+    ('2021级智科012号学姐', MAJOR_AI, '2021级', 'study_abroad', '英国爱丁堡大学', '科研', '常规留学（AI硕士）', '', '英国'),
+
+    # ========== 就业赛道 7人 ==========
+    ('2020级智科014号学长', MAJOR_AI, '2020级', 'fulltime', '华为', '人工智能', '算法工程师（CV方向）', '20k-25k', '成都'),
+    ('2021级智科009号学长', MAJOR_AI, '2021级', 'fulltime', '小米', '人工智能', 'AI算法工程师（NLP方向）', '20k-25k', '武汉'),
+    ('2020级数科012号学长', MAJOR_DS, '2020级', 'fulltime', '腾讯', '互联网', '大数据工程师', '15k-20k', '深圳'),
+    ('2021级数科013号学长', MAJOR_DS, '2021级', 'fulltime', '拼多多', '互联网', '大数据开发工程师', '20k-25k', '上海'),
+    ('2020级数科013号学长', MAJOR_DS, '2020级', 'fulltime', '华泰证券', '金融科技', '量化分析师', '15k-20k', '南京'),
+    ('2021级智科016号学长', MAJOR_AI, '2021级', 'fulltime', '省大数据局', '体制内', '技术岗公务员', '8k-12k', '省会城市'),
+    ('2021级智科010号学长', MAJOR_AI, '2021级', 'fulltime', '微信', '互联网', 'AI产品经理', '25k-30k', '广州'),
 ]
 
 
@@ -70,7 +59,7 @@ def _build_education(major, year, company):
 
 def _build_summary(major, year, company, position, salary):
     if salary:
-        return f'{year}年毕业后加入{company}担任{position}，薪资{salary}，工作中持续深耕{major}相关技术。'
+        return f'{year}年毕业后加入{company}担任{position}，薪资区间{salary}，工作中持续深耕{major}相关技术。'
     return f'{year}年毕业后进入{company}攻读{position}，继续{major}方向的研究。'
 
 
@@ -79,8 +68,6 @@ def _build_skills(major, etype):
         return 'Python,SQL,机器学习,数据建模,大数据开发'
     if etype in ('graduate', 'study_abroad'):
         return '科研论文,算法基础,数学建模,Python'
-    if etype == 'startup':
-        return '产品设计,团队管理,商业洞察'
     return '通用技能'
 
 
@@ -89,12 +76,27 @@ def _build_advice(major):
 
 
 class Command(BaseCommand):
-    help = '扩充学长就业样本数据（脱敏化名 + 真实分布）'
+    help = '冷启动学长就业样本数据（17人脱敏案例，与FAISS冷启动数据一致）'
+
+    def add_arguments(self, parser):
+        parser.add_argument(
+            '--flush',
+            action='store_true',
+            help='清空旧数据后重新写入（冷启动切换用）',
+        )
 
     def handle(self, *args, **options):
+        if options.get('flush'):
+            deleted_emp, _ = SeniorEmployment.objects.all().delete()
+            deleted_mentor, _ = SeniorMentor.objects.all().delete()
+            self.stdout.write(self.style.WARNING(
+                f'已清空旧数据：删除 {deleted_mentor} 条学长档案，{deleted_emp} 条就业去向。'
+            ))
+
         created = 0
         skipped = 0
-        for (name, major, year, etype, company, industry, position, salary, loc) in SENIORS:
+        for (name, major, stage, etype, company, industry, position, salary, loc) in SENIORS:
+            year = STAGE_TO_YEAR.get(stage, stage[:4])
             mentor, was_created = SeniorMentor.objects.get_or_create(
                 name=name,
                 defaults={
